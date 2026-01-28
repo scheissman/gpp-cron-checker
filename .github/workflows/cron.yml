@@ -5,6 +5,9 @@ on:
     - cron: '*/15 * * * *'
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   run:
     runs-on: ubuntu-latest
@@ -21,10 +24,11 @@ jobs:
         run: node check_and_push.js
 
       - name: Commit state
+        env:
+          GH_TOKEN: ${{ secrets.GH_TOKEN }}
         run: |
           git config user.name "gpp-bot"
           git config user.email "bot@gpp.local"
           git add state.json
           git commit -m "Update state" || echo "No changes"
-          git push
-
+          git push https://x-access-token:${GH_TOKEN}@github.com/scheissman/gpp-cron-checker.git HEAD:main
