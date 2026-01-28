@@ -1,1 +1,10 @@
-{}
+{
+  "bus": {
+    "hash": "fe0e0b2d",
+    "length": 443
+  },
+  "tram": {
+    "hash": "cb671512",
+    "length": 443
+  }
+}
