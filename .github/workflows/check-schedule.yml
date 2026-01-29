@@ -1,0 +1,128 @@
+name: Check GPP Schedule
+
+on:
+  schedule:
+    - cron: '*/30 * * * *'  # Svaki 30 minuta
+  workflow_dispatch:  # Omogući ručno pokretanje
+
+jobs:
+  check-schedule:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+      
+      - name: Install dependencies
+        run: npm install axios cheerio
+      
+      - name: Check schedule changes
+        id: check
+        run: |
+          node -e "
+          const axios = require('axios');
+          const cheerio = require('cheerio');
+          const fs = require('fs');
+          
+          async function getScheduleHash(url) {
+            try {
+              const response = await axios.get(url);
+              const \$ = cheerio.load(response.data);
+              const text = \$.text();
+              let hash = 0;
+              for (let i = 0; i < text.length; i++) {
+                const char = text.charCodeAt(i);
+                hash = ((hash << 5) - hash) + char;
+                hash = hash & hash;
+              }
+              return Math.abs(hash).toString(16);
+            } catch (error) {
+              console.error('Error fetching schedule:', error.message);
+              return null;
+            }
+          }
+          
+          async function main() {
+            const busUrl = 'https://www.vozaci.gpp-osijek.com/md_bus.php';
+            const tramUrl = 'https://www.vozaci.gpp-osijek.com/md_tram.php';
+            
+            const busHash = await getScheduleHash(busUrl );
+            const tramHash = await getScheduleHash(tramUrl);
+            
+            console.log('Bus hash:', busHash);
+            console.log('Tram hash:', tramHash);
+            
+            const hashFile = 'schedule-hashes.json';
+            let oldHashes = {};
+            
+            if (fs.existsSync(hashFile)) {
+              oldHashes = JSON.parse(fs.readFileSync(hashFile, 'utf8'));
+            }
+            
+            const changed = (busHash && busHash !== oldHashes.bus) || (tramHash && tramHash !== oldHashes.tram);
+            
+            if (changed) {
+              console.log('Schedule changed!');
+              fs.writeFileSync(hashFile, JSON.stringify({ bus: busHash, tram: tramHash }), 'utf8');
+              console.log('SCHEDULE_CHANGED=true');
+            } else {
+              console.log('No changes detected');
+              console.log('SCHEDULE_CHANGED=false');
+            }
+          }
+          
+          main();
+          "
+      
+      - name: Get Expo Push Tokens
+        id: tokens
+        run: |
+          # Dohvati sve issues s labelom 'push-token'
+          TOKENS=$(curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+            "https://api.github.com/repos/${{ github.repository }}/issues?labels=push-token&state=open" \
+            | jq -r '.[].body' | tr '\n' ',' | sed 's/,$//' )
+          
+          echo "TOKENS=$TOKENS" >> $GITHUB_OUTPUT
+      
+      - name: Send Notifications
+        if: env.SCHEDULE_CHANGED == 'true'
+        run: |
+          TOKENS="${{ steps.tokens.outputs.TOKENS }}"
+          
+          if [ -z "$TOKENS" ]; then
+            echo "Nema registriranih tokena"
+            exit 0
+          fi
+          
+          IFS=',' read -ra TOKEN_ARRAY <<< "$TOKENS"
+          
+          for TOKEN in "${TOKEN_ARRAY[@]}"; do
+            TOKEN=$(echo "$TOKEN" | xargs)  # Ukloni whitespace
+            if [ -n "$TOKEN" ]; then
+              echo "Slanje notifikacije na token: $TOKEN"
+              
+              curl -X POST https://exp.host/--/api/v2/push/send \
+                -H 'Content-Type: application/json' \
+                -d "{
+                  \"to\": \"$TOKEN\",
+                  \"title\": \"GPP Raspored\",
+                  \"body\": \"Raspored se promijenio\",
+                  \"sound\": \"default\",
+                  \"badge\": 1
+                }" \
+                -H "Authorization: Bearer ${{ secrets.EXPO_ACCESS_TOKEN }}"
+            fi
+          done
+      
+      - name: Commit changes
+        run: |
+          git config user.name "GitHub Actions"
+          git config user.email "actions@github.com"
+          git add schedule-hashes.json
+          git commit -m "Update schedule hashes" || true
+          git push || true
