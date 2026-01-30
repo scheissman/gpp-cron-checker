@@ -24,7 +24,7 @@ jobs:
       - name: Check schedule changes
         id: check
         run: |
-          node -e "
+          node << 'EOF'
           const axios = require('axios');
           const cheerio = require('cheerio');
           const fs = require('fs');
@@ -32,8 +32,8 @@ jobs:
           async function getScheduleHash(url) {
             try {
               const response = await axios.get(url);
-              const \$ = cheerio.load(response.data);
-              const text = \$.text();
+              const $ = cheerio.load(response.data);
+              const text = $.text();
               let hash = 0;
               for (let i = 0; i < text.length; i++) {
                 const char = text.charCodeAt(i);
@@ -51,7 +51,7 @@ jobs:
             const busUrl = 'https://www.vozaci.gpp-osijek.com/md_bus.php';
             const tramUrl = 'https://www.vozaci.gpp-osijek.com/md_tram.php';
             
-            const busHash = await getScheduleHash(busUrl );
+            const busHash = await getScheduleHash(busUrl);
             const tramHash = await getScheduleHash(tramUrl);
             
             console.log('Bus hash:', busHash);
@@ -68,29 +68,29 @@ jobs:
             
             if (changed) {
               console.log('Schedule changed!');
-              fs.writeFileSync(hashFile, JSON.stringify({ bus: busHash, tram: tramHash }), 'utf8');
-              console.log('SCHEDULE_CHANGED=true');
+              fs.writeFileSync(hashFile, JSON.stringify({ bus: busHash, tram: tramHash }, null, 2), 'utf8');
+              fs.appendFileSync(process.env.GITHUB_OUTPUT, 'SCHEDULE_CHANGED=true\n');
             } else {
               console.log('No changes detected');
-              console.log('SCHEDULE_CHANGED=false');
+              fs.appendFileSync(process.env.GITHUB_OUTPUT, 'SCHEDULE_CHANGED=false\n');
             }
           }
           
           main();
-          "
+          EOF
       
       - name: Get Expo Push Tokens
         id: tokens
         run: |
-          # Dohvati sve issues s labelom 'push-token'
           TOKENS=$(curl -s -H "Authorization: token ${{ secrets.GH_TOKEN }}" \
             "https://api.github.com/repos/${{ github.repository }}/issues?labels=push-token&state=open" \
-            | jq -r '.[].body' | tr '\n' ',' | sed 's/,$//' )
+            | jq -r '.[].body' | tr '\n' ',' | sed 's/,$//')
           
           echo "TOKENS=$TOKENS" >> $GITHUB_OUTPUT
+          echo "Found tokens: $TOKENS"
       
       - name: Send Notifications
-        if: env.SCHEDULE_CHANGED == 'true'
+        if: steps.check.outputs.SCHEDULE_CHANGED == 'true'
         run: |
           TOKENS="${{ steps.tokens.outputs.TOKENS }}"
           
@@ -119,10 +119,14 @@ jobs:
             fi
           done
       
-      - name: Commit changes
+      - name: Configure Git
         run: |
           git config user.name "GitHub Actions"
           git config user.email "actions@github.com"
+      
+      - name: Commit and push changes
+        run: |
           git add schedule-hashes.json
           git commit -m "Update schedule hashes" || true
+          git remote set-url origin https://x-access-token:${{ secrets.GH_TOKEN }}@github.com/${{ github.repository }}.git
           git push || true
