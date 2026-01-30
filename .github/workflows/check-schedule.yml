@@ -5,6 +5,10 @@ on:
     - cron: '*/30 * * * *'  # Svaki 30 minuta
   workflow_dispatch:  # Omogući ručno pokretanje
 
+permissions:
+  contents: write
+  issues: read
+
 jobs:
   check-schedule:
     runs-on: ubuntu-latest
@@ -82,7 +86,7 @@ jobs:
       - name: Get Expo Push Tokens
         id: tokens
         run: |
-          TOKENS=$(curl -s -H "Authorization: token ${{ secrets.GH_TOKEN }}" \
+          TOKENS=$(curl -s -H "Authorization: token ${{ secrets.GIT_TOKEN }}" \
             "https://api.github.com/repos/${{ github.repository }}/issues?labels=push-token&state=open" \
             | jq -r '.[].body' | tr '\n' ',' | sed 's/,$//')
           
@@ -121,12 +125,11 @@ jobs:
       
       - name: Configure Git
         run: |
-          git config user.name "GitHub Actions"
-          git config user.email "actions@github.com"
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
       
       - name: Commit and push changes
         run: |
           git add schedule-hashes.json
           git commit -m "Update schedule hashes" || true
-          git remote set-url origin https://x-access-token:${{ secrets.GH_TOKEN }}@github.com/${{ github.repository }}.git
-          git push || true
+          git push
