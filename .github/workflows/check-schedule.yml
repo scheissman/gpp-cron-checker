@@ -83,7 +83,7 @@ jobs:
         id: tokens
         run: |
           # Dohvati sve issues s labelom 'push-token'
-          TOKENS=$(curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+          TOKENS=$(curl -s -H "Authorization: token ${{ secrets.GH_TOKEN }}" \
             "https://api.github.com/repos/${{ github.repository }}/issues?labels=push-token&state=open" \
             | jq -r '.[].body' | tr '\n' ',' | sed 's/,$//' )
           
